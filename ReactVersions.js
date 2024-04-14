@@ -34,6 +34,7 @@ const stablePackages = {
   react: ReactVersion,
   'react-art': ReactVersion,
   'react-dom': ReactVersion,
+  'react-server-dom-esm': ReactVersion,
   'react-server-dom-webpack': ReactVersion,
   'react-server-dom-turbopack': ReactVersion,
   'react-is': ReactVersion,
