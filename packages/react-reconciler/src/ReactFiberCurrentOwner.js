@@ -7,5 +7,10 @@
  * @flow
  */
 
-export * from './ReactServer';
-export {jsx, jsxs, jsxDEV} from './jsx/ReactJSX';
+import type {Fiber} from './ReactInternalTypes';
+
+export let currentOwner: Fiber | null = null;
+
+export function setCurrentOwner(fiber: null | Fiber) {
+  currentOwner = fiber;
+}

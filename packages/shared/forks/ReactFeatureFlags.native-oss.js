@@ -52,6 +52,7 @@ export const enableTaint = __NEXT_RN_MAJOR__;
 export const enableUnifiedSyncLane = __NEXT_RN_MAJOR__;
 export const enableFizzExternalRuntime = __NEXT_RN_MAJOR__; // DOM-only
 export const enableBinaryFlight = __NEXT_RN_MAJOR__; // DOM-only
+export const enableFlightReadableStream = __NEXT_RN_MAJOR__; // DOM-only
 export const enableServerComponentKeys = __NEXT_RN_MAJOR__;
 export const enableServerComponentLogs = __NEXT_RN_MAJOR__;
 
@@ -61,6 +62,7 @@ export const debugRenderPhaseSideEffectsForStrictMode = __DEV__;
 
 // TODO: decide on React 19
 export const enableUseMemoCacheHook = false;
+export const enableNoCloningMemoCache = false;
 export const enableUseDeferredValueInitialArg = __EXPERIMENTAL__;
 
 // -----------------------------------------------------------------------------
@@ -71,7 +73,6 @@ export const enableDebugTracing = false;
 export const enableAsyncDebugInfo = false;
 export const enableSchedulingProfiler = __PROFILE__;
 export const enableLegacyCache = false;
-export const enableFetchInstrumentation = false;
 export const enablePostpone = false;
 export const disableCommentsAsDOMContainers = true;
 export const disableInputAttributeSyncing = false;
@@ -100,6 +101,10 @@ export const allowConcurrentByDefault = false;
 export const enableTransitionTracing = false;
 export const enableDO_NOT_USE_disableStrictPassiveEffect = false;
 export const passChildrenWhenCloningPersistedNodes = false;
+export const enableEarlyReturnForPropDiffing = false;
+export const enableAsyncIterableChildren = false;
+
+export const renameElementSymbol = true;
 
 // Profiling Only
 export const enableProfilerTimer = __PROFILE__;

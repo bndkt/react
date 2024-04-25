@@ -78,9 +78,10 @@ export const enableLegacyFBSupport = false;
 
 export const enableCache = true;
 export const enableLegacyCache = __EXPERIMENTAL__;
-export const enableFetchInstrumentation = true;
 
 export const enableBinaryFlight = __EXPERIMENTAL__;
+export const enableFlightReadableStream = __EXPERIMENTAL__;
+export const enableAsyncIterableChildren = __EXPERIMENTAL__;
 
 export const enableTaint = __EXPERIMENTAL__;
 
@@ -104,6 +105,8 @@ export const enableCPUSuspense = __EXPERIMENTAL__;
 // Enables unstable_useMemoCache hook, intended as a compilation target for
 // auto-memoization.
 export const enableUseMemoCacheHook = __EXPERIMENTAL__;
+// Test this at Meta before enabling.
+export const enableNoCloningMemoCache = false;
 
 export const enableUseEffectEventHook = __EXPERIMENTAL__;
 
@@ -116,9 +119,9 @@ export const alwaysThrottleRetries = true;
 
 export const passChildrenWhenCloningPersistedNodes = false;
 
-export const enableUseDeferredValueInitialArg = __EXPERIMENTAL__;
-
 export const enableServerComponentLogs = __EXPERIMENTAL__;
+
+export const enableEarlyReturnForPropDiffing = false;
 
 /**
  * Enables an expiration time for retry lanes to avoid starvation.
@@ -140,6 +143,9 @@ export const transitionLaneExpirationMs = 5000;
 
 // const __NEXT_MAJOR__ = __EXPERIMENTAL__;
 
+// Renames the internal symbol for elements since they have changed signature/constructor
+export const renameElementSymbol = true;
+
 // Removes legacy style context
 export const disableLegacyContext = true;
 
@@ -159,7 +165,7 @@ export const disableIEWorkarounds = true;
 export const enableFilterEmptyStringAttributesDOM = true;
 
 // Disabled caching behavior of `react/cache` in client runtimes.
-export const disableClientCache = false;
+export const disableClientCache = true;
 
 // Changes Server Components Reconciliation when they have keys
 export const enableServerComponentKeys = true;
@@ -190,6 +196,9 @@ export const disableDOMTestUtils = true;
 
 // Make <Context> equivalent to <Context.Provider> instead of <Context.Consumer>
 export const enableRenderableContext = true;
+
+// Enables the `initialValue` option for `useDeferredValue`
+export const enableUseDeferredValueInitialArg = true;
 
 // -----------------------------------------------------------------------------
 // Chopping Block

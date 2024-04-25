@@ -5,9 +5,6 @@ const {bundleTypes, moduleTypes} = require('./bundles');
 const inlinedHostConfigs = require('../shared/inlinedHostConfigs');
 
 const {
-  UMD_DEV,
-  UMD_PROD,
-  UMD_PROFILING,
   FB_WWW_DEV,
   FB_WWW_PROD,
   FB_WWW_PROFILING,
@@ -65,10 +62,7 @@ const forks = Object.freeze({
     if (entry === 'react') {
       return './packages/react/src/ReactSharedInternalsClient.js';
     }
-    if (
-      entry === 'react/src/ReactServer.js' ||
-      entry === 'react/src/ReactServerFB.js'
-    ) {
+    if (entry === 'react/src/ReactServer.js') {
       return './packages/react/src/ReactSharedInternalsServer.js';
     }
     if (bundle.condition === 'react-server') {
@@ -97,9 +91,9 @@ const forks = Object.freeze({
   ) => {
     if (
       entry === 'react-dom' ||
-      entry === 'react-dom/server-rendering-stub' ||
-      entry === 'react-dom/src/ReactDOMServer.js' ||
-      entry === 'react-dom/unstable_testing'
+      entry === 'react-dom/src/ReactDOMFB.js' ||
+      entry === 'react-dom/src/ReactDOMTestingFB.js' ||
+      entry === 'react-dom/src/ReactDOMServer.js'
     ) {
       if (
         bundleType === FB_WWW_DEV ||
@@ -188,25 +182,6 @@ const forks = Object.freeze({
     return null;
   },
 
-  './packages/scheduler/index.js': (bundleType, entry, dependencies) => {
-    switch (bundleType) {
-      case UMD_DEV:
-      case UMD_PROD:
-      case UMD_PROFILING:
-        if (dependencies.indexOf('react') === -1) {
-          // It's only safe to use this fork for modules that depend on React,
-          // because they read the re-exported API from the SECRET_INTERNALS object.
-          return null;
-        }
-        // Optimization: for UMDs, use the API that is already a part of the React
-        // package instead of requiring it to be loaded via a separate <script> tag
-        return './packages/shared/forks/Scheduler.umd.js';
-      default:
-        // For other bundles, use the shared NPM package.
-        return null;
-    }
-  },
-
   './packages/scheduler/src/SchedulerFeatureFlags.js': (
     bundleType,
     entry,
@@ -226,17 +201,6 @@ const forks = Object.freeze({
     switch (bundleType) {
       case FB_WWW_DEV:
         return './packages/shared/forks/consoleWithStackDev.www.js';
-      default:
-        return null;
-    }
-  },
-
-  './packages/react/src/ReactSharedInternalsClient.js': (bundleType, entry) => {
-    switch (bundleType) {
-      case UMD_DEV:
-      case UMD_PROD:
-      case UMD_PROFILING:
-        return './packages/react/src/forks/ReactSharedInternalsClient.umd.js';
       default:
         return null;
     }

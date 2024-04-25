@@ -11,9 +11,6 @@ const bundleTypes = {
   NODE_ES2015: 'NODE_ES2015',
   ESM_DEV: 'ESM_DEV',
   ESM_PROD: 'ESM_PROD',
-  UMD_DEV: 'UMD_DEV',
-  UMD_PROD: 'UMD_PROD',
-  UMD_PROFILING: 'UMD_PROFILING',
   NODE_DEV: 'NODE_DEV',
   NODE_PROD: 'NODE_PROD',
   NODE_PROFILING: 'NODE_PROFILING',
@@ -35,9 +32,6 @@ const {
   NODE_ES2015,
   ESM_DEV,
   ESM_PROD,
-  UMD_DEV,
-  UMD_PROD,
-  UMD_PROFILING,
   NODE_DEV,
   NODE_PROD,
   NODE_PROFILING,
@@ -72,9 +66,6 @@ const bundles = [
   /******* Isomorphic *******/
   {
     bundleTypes: [
-      UMD_DEV,
-      UMD_PROD,
-      UMD_PROFILING,
       NODE_DEV,
       NODE_PROD,
       FB_WWW_DEV,
@@ -100,18 +91,6 @@ const bundles = [
     name: 'react.react-server',
     condition: 'react-server',
     global: 'React',
-    minifyWithProdErrorCodes: true,
-    wrapWithModuleBoundaries: false,
-    externals: [],
-  },
-
-  /******* Isomorphic Shared Subset for FB *******/
-  {
-    bundleTypes: __EXPERIMENTAL__ ? [FB_WWW_DEV, FB_WWW_PROD] : [],
-    moduleType: ISOMORPHIC,
-    entry: 'react/src/ReactServerFB.js',
-    condition: 'react-server',
-    global: 'ReactServer',
     minifyWithProdErrorCodes: true,
     wrapWithModuleBoundaries: false,
     externals: [],
@@ -172,19 +151,40 @@ const bundles = [
 
   /******* React DOM *******/
   {
-    bundleTypes: [
-      UMD_DEV,
-      UMD_PROD,
-      UMD_PROFILING,
-      NODE_DEV,
-      NODE_PROD,
-      NODE_PROFILING,
-      FB_WWW_DEV,
-      FB_WWW_PROD,
-      FB_WWW_PROFILING,
-    ],
+    bundleTypes: [NODE_DEV, NODE_PROD],
     moduleType: RENDERER,
     entry: 'react-dom',
+    global: 'ReactDOM',
+    minifyWithProdErrorCodes: true,
+    wrapWithModuleBoundaries: true,
+    externals: ['react'],
+  },
+  /******* React DOM Client *******/
+  {
+    bundleTypes: [NODE_DEV, NODE_PROD],
+    moduleType: RENDERER,
+    entry: 'react-dom/client',
+    global: 'ReactDOM',
+    minifyWithProdErrorCodes: true,
+    wrapWithModuleBoundaries: true,
+    externals: ['react', 'react-dom'],
+  },
+
+  /******* React DOM Profiling (Client) *******/
+  {
+    bundleTypes: [NODE_DEV, NODE_PROFILING],
+    moduleType: RENDERER,
+    entry: 'react-dom/profiling',
+    global: 'ReactDOM',
+    minifyWithProdErrorCodes: true,
+    wrapWithModuleBoundaries: true,
+    externals: ['react', 'react-dom'],
+  },
+  /******* React DOM FB *******/
+  {
+    bundleTypes: [FB_WWW_DEV, FB_WWW_PROD, FB_WWW_PROFILING],
+    moduleType: RENDERER,
+    entry: 'react-dom/src/ReactDOMFB.js',
     global: 'ReactDOM',
     minifyWithProdErrorCodes: true,
     wrapWithModuleBoundaries: true,
@@ -195,7 +195,7 @@ const bundles = [
   {
     bundleTypes: [NODE_DEV, NODE_PROD],
     moduleType: RENDERER,
-    entry: 'react-dom/src/ReactDOMServer.js',
+    entry: 'react-dom/src/ReactDOMReactServer.js',
     name: 'react-dom.react-server',
     condition: 'react-server',
     global: 'ReactDOM',
@@ -207,7 +207,7 @@ const bundles = [
   /******* Test Utils *******/
   {
     moduleType: RENDERER_UTILS,
-    bundleTypes: [FB_WWW_DEV, NODE_DEV, NODE_PROD, UMD_DEV, UMD_PROD],
+    bundleTypes: [FB_WWW_DEV, NODE_DEV, NODE_PROD],
     entry: 'react-dom/test-utils',
     global: 'ReactTestUtils',
     minifyWithProdErrorCodes: false,
@@ -215,13 +215,22 @@ const bundles = [
     externals: ['react', 'react-dom'],
   },
 
+  /******* React DOM - Testing *******/
+  {
+    moduleType: RENDERER,
+    bundleTypes: __EXPERIMENTAL__ ? [NODE_DEV, NODE_PROD] : [],
+    entry: 'react-dom/unstable_testing',
+    global: 'ReactDOMTesting',
+    minifyWithProdErrorCodes: true,
+    wrapWithModuleBoundaries: false,
+    externals: ['react', 'react-dom'],
+  },
+
   /******* React DOM - www - Testing *******/
   {
     moduleType: RENDERER,
-    bundleTypes: __EXPERIMENTAL__
-      ? [FB_WWW_DEV, FB_WWW_PROD, NODE_DEV, NODE_PROD]
-      : [FB_WWW_DEV, FB_WWW_PROD],
-    entry: 'react-dom/unstable_testing',
+    bundleTypes: [FB_WWW_DEV, FB_WWW_PROD],
+    entry: 'react-dom/src/ReactDOMTestingFB.js',
     global: 'ReactDOMTesting',
     minifyWithProdErrorCodes: true,
     wrapWithModuleBoundaries: false,
@@ -230,14 +239,7 @@ const bundles = [
 
   /******* React DOM Server *******/
   {
-    bundleTypes: [
-      UMD_DEV,
-      UMD_PROD,
-      NODE_DEV,
-      NODE_PROD,
-      FB_WWW_DEV,
-      FB_WWW_PROD,
-    ],
+    bundleTypes: [NODE_DEV, NODE_PROD, FB_WWW_DEV, FB_WWW_PROD],
     moduleType: RENDERER,
     entry: 'react-dom/src/server/ReactDOMLegacyServerBrowser.js',
     name: 'react-dom-server-legacy.browser',
@@ -270,7 +272,7 @@ const bundles = [
 
   /******* React DOM Fizz Server *******/
   {
-    bundleTypes: [NODE_DEV, NODE_PROD, UMD_DEV, UMD_PROD],
+    bundleTypes: [NODE_DEV, NODE_PROD],
     moduleType: RENDERER,
     entry: 'react-dom/src/server/react-dom-server.browser.js',
     name: 'react-dom-server.browser',
@@ -337,21 +339,9 @@ const bundles = [
     externals: [],
   },
 
-  /******* React DOM Server Render Stub *******/
-  {
-    bundleTypes: [NODE_DEV, NODE_PROD, UMD_DEV, UMD_PROD],
-    moduleType: RENDERER,
-    entry: 'react-dom/server-rendering-stub',
-    name: 'react-dom-server-rendering-stub',
-    global: 'ReactDOMServerRenderingStub',
-    minifyWithProdErrorCodes: true,
-    wrapWithModuleBoundaries: false,
-    externals: ['react'],
-  },
-
   /******* React Server DOM Webpack Server *******/
   {
-    bundleTypes: [NODE_DEV, NODE_PROD, UMD_DEV, UMD_PROD],
+    bundleTypes: [NODE_DEV, NODE_PROD],
     moduleType: RENDERER,
     entry: 'react-server-dom-webpack/server.browser',
     condition: 'react-server',
@@ -393,7 +383,7 @@ const bundles = [
 
   /******* React Server DOM Webpack Client *******/
   {
-    bundleTypes: [NODE_DEV, NODE_PROD, UMD_DEV, UMD_PROD],
+    bundleTypes: [NODE_DEV, NODE_PROD],
     moduleType: RENDERER,
     entry: 'react-server-dom-webpack/client.browser',
     global: 'ReactServerDOMClient',
@@ -467,7 +457,7 @@ const bundles = [
 
   /******* React Server DOM Turbopack Server *******/
   {
-    bundleTypes: [NODE_DEV, NODE_PROD, UMD_DEV, UMD_PROD],
+    bundleTypes: [NODE_DEV, NODE_PROD],
     moduleType: RENDERER,
     entry: 'react-server-dom-turbopack/server.browser',
     condition: 'react-server',
@@ -509,7 +499,7 @@ const bundles = [
 
   /******* React Server DOM Turbopack Client *******/
   {
-    bundleTypes: [NODE_DEV, NODE_PROD, UMD_DEV, UMD_PROD],
+    bundleTypes: [NODE_DEV, NODE_PROD],
     moduleType: RENDERER,
     entry: 'react-server-dom-turbopack/client.browser',
     global: 'ReactServerDOMClient',
@@ -615,29 +605,6 @@ const bundles = [
     externals: ['acorn'],
   },
 
-  /******* React Server DOM FB Server *******/
-  {
-    bundleTypes: __EXPERIMENTAL__ ? [FB_WWW_DEV, FB_WWW_PROD] : [],
-    moduleType: RENDERER,
-    entry: 'react-server-dom-fb/src/ReactFlightDOMServerFB.js',
-    condition: 'react-server',
-    global: 'ReactFlightDOMServer',
-    minifyWithProdErrorCodes: false,
-    wrapWithModuleBoundaries: false,
-    externals: ['react', 'react-dom'],
-  },
-
-  /******* React Server DOM FB Client *******/
-  {
-    bundleTypes: __EXPERIMENTAL__ ? [FB_WWW_DEV, FB_WWW_PROD] : [],
-    moduleType: RENDERER,
-    entry: 'react-server-dom-fb/src/ReactFlightDOMClientFB.js',
-    global: 'ReactFlightDOMClient',
-    minifyWithProdErrorCodes: false,
-    wrapWithModuleBoundaries: false,
-    externals: ['react', 'react-dom'],
-  },
-
   /******* React Suspense Test Utils *******/
   {
     bundleTypes: [NODE_ES2015],
@@ -651,14 +618,7 @@ const bundles = [
 
   /******* React ART *******/
   {
-    bundleTypes: [
-      UMD_DEV,
-      UMD_PROD,
-      NODE_DEV,
-      NODE_PROD,
-      FB_WWW_DEV,
-      FB_WWW_PROD,
-    ],
+    bundleTypes: [NODE_DEV, NODE_PROD, FB_WWW_DEV, FB_WWW_PROD],
     moduleType: RENDERER,
     entry: 'react-art',
     global: 'ReactART',
@@ -752,8 +712,6 @@ const bundles = [
       FB_WWW_DEV,
       NODE_DEV,
       NODE_PROD,
-      UMD_DEV,
-      UMD_PROD,
       RN_FB_DEV,
       RN_FB_PROD,
       RN_FB_PROFILING,
@@ -845,7 +803,7 @@ const bundles = [
 
   /******* React Reconciler *******/
   {
-    bundleTypes: [NODE_DEV, NODE_PROD, NODE_PROFILING],
+    bundleTypes: [NODE_DEV, NODE_PROD, NODE_PROFILING, FB_WWW_DEV, FB_WWW_PROD],
     moduleType: RECONCILER,
     entry: 'react-reconciler',
     global: 'ReactReconciler',
@@ -917,8 +875,6 @@ const bundles = [
       NODE_PROD,
       FB_WWW_DEV,
       FB_WWW_PROD,
-      UMD_DEV,
-      UMD_PROD,
       RN_FB_DEV,
       RN_FB_PROD,
       RN_FB_PROFILING,
@@ -944,9 +900,7 @@ const bundles = [
 
   /******* React Cache (experimental, old) *******/
   {
-    // This is only used by our own tests.
-    // We can delete it later.
-    bundleTypes: [NODE_DEV, NODE_PROD],
+    bundleTypes: [NODE_DEV, NODE_PROD, FB_WWW_DEV, FB_WWW_PROD],
     moduleType: ISOMORPHIC,
     entry: 'react-cache',
     global: 'ReactCacheOld',
@@ -1044,8 +998,6 @@ const bundles = [
   /******* React Scheduler Mock (experimental) *******/
   {
     bundleTypes: [
-      UMD_DEV,
-      UMD_PROD,
       NODE_DEV,
       NODE_PROD,
       FB_WWW_DEV,
@@ -1167,23 +1119,17 @@ function getFilename(bundle, bundleType) {
     case BUN_DEV:
       return `${name}.development.js`;
     case BUN_PROD:
-      return `${name}.production.min.js`;
+      return `${name}.production.js`;
     case ESM_DEV:
       return `${name}.development.js`;
     case ESM_PROD:
-      return `${name}.production.min.js`;
-    case UMD_DEV:
-      return `${name}.development.js`;
-    case UMD_PROD:
-      return `${name}.production.min.js`;
-    case UMD_PROFILING:
-      return `${name}.profiling.min.js`;
+      return `${name}.production.js`;
     case NODE_DEV:
       return `${name}.development.js`;
     case NODE_PROD:
-      return `${name}.production.min.js`;
+      return `${name}.production.js`;
     case NODE_PROFILING:
-      return `${name}.profiling.min.js`;
+      return `${name}.profiling.js`;
     case FB_WWW_DEV:
     case RN_OSS_DEV:
     case RN_FB_DEV:
