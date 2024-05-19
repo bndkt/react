@@ -13,6 +13,7 @@ import {
   getIteratorFn,
   REACT_ELEMENT_TYPE,
   REACT_FRAGMENT_TYPE,
+  REACT_LAZY_TYPE,
 } from 'shared/ReactSymbols';
 import {checkKeyStringCoercion} from 'shared/CheckStringCoercion';
 import isValidElementType from 'shared/isValidElementType';
@@ -22,12 +23,42 @@ import {
   enableRefAsProp,
   disableStringRefs,
   disableDefaultPropsExceptForClasses,
+  enableFastJSX,
+  enableOwnerStacks,
 } from 'shared/ReactFeatureFlags';
 import {checkPropStringCoercion} from 'shared/CheckStringCoercion';
 import {ClassComponent} from 'react-reconciler/src/ReactWorkTags';
 import getComponentNameFromFiber from 'react-reconciler/src/getComponentNameFromFiber';
 
 const REACT_CLIENT_REFERENCE = Symbol.for('react.client.reference');
+
+const createTask =
+  // eslint-disable-next-line react-internal/no-production-logging
+  __DEV__ && enableOwnerStacks && console.createTask
+    ? // eslint-disable-next-line react-internal/no-production-logging
+      console.createTask
+    : () => null;
+
+function getTaskName(type) {
+  if (type === REACT_FRAGMENT_TYPE) {
+    return '<>';
+  }
+  if (
+    typeof type === 'object' &&
+    type !== null &&
+    type.$$typeof === REACT_LAZY_TYPE
+  ) {
+    // We don't want to eagerly initialize the initializer in DEV mode so we can't
+    // call it to extract the type so we don't know the type of this component.
+    return '<...>';
+  }
+  try {
+    const name = getComponentNameFromType(type);
+    return name ? '<' + name + '>' : '<...>';
+  } catch (x) {
+    return '<...>';
+  }
+}
 
 function getOwner() {
   if (__DEV__ || !disableStringRefs) {
@@ -50,6 +81,10 @@ if (__DEV__) {
   didWarnAboutStringRefs = {};
   didWarnAboutElementRef = {};
 }
+
+const enableFastJSXWithStringRefs = enableFastJSX && enableRefAsProp;
+const enableFastJSXWithoutStringRefs =
+  enableFastJSXWithStringRefs && disableStringRefs;
 
 function hasValidRef(config) {
   if (__DEV__) {
@@ -189,7 +224,17 @@ function elementRefGetterWithDeprecationWarning() {
  * indicating filename, line number, and/or other information.
  * @internal
  */
-function ReactElement(type, key, _ref, self, source, owner, props) {
+function ReactElement(
+  type,
+  key,
+  _ref,
+  self,
+  source,
+  owner,
+  props,
+  debugStack,
+  debugTask,
+) {
   let ref;
   if (enableRefAsProp) {
     // When enableRefAsProp is on, ignore whatever was passed as the ref
@@ -306,6 +351,20 @@ function ReactElement(type, key, _ref, self, source, owner, props) {
       writable: true,
       value: null,
     });
+    if (enableOwnerStacks) {
+      Object.defineProperty(element, '_debugStack', {
+        configurable: false,
+        enumerable: false,
+        writable: true,
+        value: debugStack,
+      });
+      Object.defineProperty(element, '_debugTask', {
+        configurable: false,
+        enumerable: false,
+        writable: true,
+        value: debugTask,
+      });
+    }
     if (Object.freeze) {
       Object.freeze(element.props);
       Object.freeze(element);
@@ -355,7 +414,11 @@ export function jsxProd(type, config, maybeKey) {
   }
 
   let props;
-  if (enableRefAsProp && disableStringRefs && !('key' in config)) {
+  if (
+    (enableFastJSXWithoutStringRefs ||
+      (enableFastJSXWithStringRefs && !('ref' in config))) &&
+    !('key' in config)
+  ) {
     // If key was not spread in, we can reuse the original props object. This
     // only works for `jsx`, not `createElement`, because `jsx` is a compiler
     // target and the compiler always passes a new object. For `createElement`,
@@ -395,7 +458,17 @@ export function jsxProd(type, config, maybeKey) {
     }
   }
 
-  return ReactElement(type, key, ref, undefined, undefined, getOwner(), props);
+  return ReactElement(
+    type,
+    key,
+    ref,
+    undefined,
+    undefined,
+    getOwner(),
+    props,
+    undefined,
+    undefined,
+  );
 }
 
 // While `jsxDEV` should never be called when running in production, we do
@@ -578,7 +651,11 @@ export function jsxDEV(type, config, maybeKey, isStaticChildren, source, self) {
     }
 
     let props;
-    if (enableRefAsProp && disableStringRefs && !('key' in config)) {
+    if (
+      (enableFastJSXWithoutStringRefs ||
+        (enableFastJSXWithStringRefs && !('ref' in config))) &&
+      !('key' in config)
+    ) {
       // If key was not spread in, we can reuse the original props object. This
       // only works for `jsx`, not `createElement`, because `jsx` is a compiler
       // target and the compiler always passes a new object. For `createElement`,
@@ -639,6 +716,8 @@ export function jsxDEV(type, config, maybeKey, isStaticChildren, source, self) {
       source,
       getOwner(),
       props,
+      __DEV__ && enableOwnerStacks ? Error('react-stack-top-frame') : undefined,
+      __DEV__ && enableOwnerStacks ? createTask(getTaskName(type)) : undefined,
     );
 
     if (type === REACT_FRAGMENT_TYPE) {
@@ -829,6 +908,8 @@ export function createElement(type, config, children) {
     undefined,
     getOwner(),
     props,
+    __DEV__ && enableOwnerStacks ? Error('react-stack-top-frame') : undefined,
+    __DEV__ && enableOwnerStacks ? createTask(getTaskName(type)) : undefined,
   );
 
   if (type === REACT_FRAGMENT_TYPE) {
@@ -849,6 +930,8 @@ export function cloneAndReplaceKey(oldElement, newKey) {
     undefined,
     !__DEV__ && disableStringRefs ? undefined : oldElement._owner,
     oldElement.props,
+    __DEV__ && enableOwnerStacks ? oldElement._debugStack : undefined,
+    __DEV__ && enableOwnerStacks ? oldElement._debugTask : undefined,
   );
 }
 
@@ -960,6 +1043,8 @@ export function cloneElement(element, config, children) {
     undefined,
     owner,
     props,
+    __DEV__ && enableOwnerStacks ? element._debugStack : undefined,
+    __DEV__ && enableOwnerStacks ? element._debugTask : undefined,
   );
 
   for (let i = 2; i < arguments.length; i++) {

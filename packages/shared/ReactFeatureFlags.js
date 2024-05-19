@@ -79,8 +79,8 @@ export const enableLegacyFBSupport = false;
 export const enableCache = true;
 export const enableLegacyCache = __EXPERIMENTAL__;
 
-export const enableBinaryFlight = __EXPERIMENTAL__;
-export const enableFlightReadableStream = __EXPERIMENTAL__;
+export const enableBinaryFlight = true;
+export const enableFlightReadableStream = true;
 export const enableAsyncIterableChildren = __EXPERIMENTAL__;
 
 export const enableTaint = __EXPERIMENTAL__;
@@ -102,9 +102,9 @@ export const enableSuspenseAvoidThisFallbackFizz = false;
 
 export const enableCPUSuspense = __EXPERIMENTAL__;
 
-// Enables unstable_useMemoCache hook, intended as a compilation target for
+// Enables useMemoCache hook, intended as a compilation target for
 // auto-memoization.
-export const enableUseMemoCacheHook = __EXPERIMENTAL__;
+export const enableUseMemoCacheHook = true;
 // Test this at Meta before enabling.
 export const enableNoCloningMemoCache = false;
 
@@ -121,7 +121,9 @@ export const passChildrenWhenCloningPersistedNodes = false;
 
 export const enableServerComponentLogs = __EXPERIMENTAL__;
 
-export const enableEarlyReturnForPropDiffing = false;
+export const enableAddPropertiesFastPath = false;
+
+export const enableOwnerStacks = __EXPERIMENTAL__;
 
 /**
  * Enables an expiration time for retry lanes to avoid starvation.
@@ -167,9 +169,6 @@ export const enableFilterEmptyStringAttributesDOM = true;
 // Disabled caching behavior of `react/cache` in client runtimes.
 export const disableClientCache = true;
 
-// Changes Server Components Reconciliation when they have keys
-export const enableServerComponentKeys = true;
-
 /**
  * Enables a new error detection for infinite render loops from updates caused
  * by setState or similar outside of the component owning the state.
@@ -183,6 +182,7 @@ export const enableInfiniteRenderLoopDetection = true;
 // during element creation.
 export const enableRefAsProp = true;
 export const disableStringRefs = true;
+export const enableFastJSX = true;
 
 // Warn on any usage of ReactTestRenderer
 export const enableReactTestRendererWarning = true;

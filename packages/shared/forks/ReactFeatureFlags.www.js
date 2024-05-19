@@ -35,6 +35,8 @@ export const {
   favorSafetyOverHydrationPerf,
   disableDefaultPropsExceptForClasses,
   enableNoCloningMemoCache,
+  enableAddPropertiesFastPath,
+  enableFastJSX,
 } = dynamicFeatureFlags;
 
 // On WWW, __EXPERIMENTAL__ is used for a new modern build.
@@ -70,8 +72,8 @@ export const renameElementSymbol = false;
 export const enableCache = true;
 export const enableLegacyCache = true;
 
-export const enableBinaryFlight = false;
-export const enableFlightReadableStream = false;
+export const enableBinaryFlight = true;
+export const enableFlightReadableStream = true;
 export const enableAsyncIterableChildren = false;
 
 export const enableTaint = false;
@@ -107,7 +109,6 @@ export const passChildrenWhenCloningPersistedNodes = false;
 export const enableAsyncDebugInfo = false;
 export const disableClientCache = true;
 
-export const enableServerComponentKeys = true;
 export const enableServerComponentLogs = true;
 
 export const enableReactTestRendererWarning = false;
@@ -120,7 +121,8 @@ export const disableStringRefs = false;
 export const disableLegacyMode = __EXPERIMENTAL__;
 
 export const disableDOMTestUtils = false;
-export const enableEarlyReturnForPropDiffing = false;
+
+export const enableOwnerStacks = false;
 
 // Flow magic to verify the exports of this file match the original version.
 ((((null: any): ExportsType): FeatureFlagsType): ExportsType);

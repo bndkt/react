@@ -37,7 +37,7 @@ describe('ReactHooksInspectionIntegration', () => {
     ReactDOM = require('react-dom');
     act = require('internal-test-utils').act;
     ReactDebugTools = require('react-debug-tools');
-    useMemoCache = React.unstable_useMemoCache;
+    useMemoCache = require('react/compiler-runtime').c;
   });
 
   it('should inspect the current state of useState hooks', async () => {
@@ -831,6 +831,45 @@ describe('ReactHooksInspectionIntegration', () => {
         },
       ]
     `);
+  });
+
+  // @reactVersion >= 16.8
+  it('should inspect the value of the current provider in useContext reading the same context multiple times', async () => {
+    const ContextA = React.createContext('default A');
+    const ContextB = React.createContext('default B');
+    function Foo(props) {
+      React.useContext(ContextA);
+      React.useContext(ContextA);
+      React.useContext(ContextB);
+      React.useContext(ContextB);
+      React.useContext(ContextA);
+      React.useContext(ContextB);
+      React.useContext(ContextB);
+      React.useContext(ContextB);
+      return null;
+    }
+    let renderer;
+    await act(() => {
+      renderer = ReactTestRenderer.create(
+        <ContextA.Provider value="contextual A">
+          <Foo prop="prop" />
+        </ContextA.Provider>,
+        {unstable_isConcurrent: true},
+      );
+    });
+    const childFiber = renderer.root.findByType(Foo)._currentFiber();
+    const tree = ReactDebugTools.inspectHooksOfFiber(childFiber);
+
+    expect(normalizeSourceLoc(tree)).toEqual([
+      expect.objectContaining({value: 'contextual A'}),
+      expect.objectContaining({value: 'contextual A'}),
+      expect.objectContaining({value: 'default B'}),
+      expect.objectContaining({value: 'default B'}),
+      expect.objectContaining({value: 'contextual A'}),
+      expect.objectContaining({value: 'default B'}),
+      expect.objectContaining({value: 'default B'}),
+      expect.objectContaining({value: 'default B'}),
+    ]);
   });
 
   it('should inspect forwardRef', async () => {

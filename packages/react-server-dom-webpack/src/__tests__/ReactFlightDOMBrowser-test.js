@@ -198,6 +198,55 @@ describe('ReactFlightDOMBrowser', () => {
     });
   });
 
+  it('should resolve client components (with async chunks) when referenced in props', async () => {
+    let resolveClientComponentChunk;
+
+    const ClientOuter = clientExports(function ClientOuter({
+      Component,
+      children,
+    }) {
+      return <Component>{children}</Component>;
+    });
+
+    const ClientInner = clientExports(
+      function ClientInner({children}) {
+        return <span>{children}</span>;
+      },
+      '42',
+      '/test.js',
+      new Promise(resolve => (resolveClientComponentChunk = resolve)),
+    );
+
+    function Server() {
+      return <ClientOuter Component={ClientInner}>Hello, World!</ClientOuter>;
+    }
+
+    const stream = ReactServerDOMServer.renderToReadableStream(
+      <Server />,
+      webpackMap,
+    );
+
+    function ClientRoot({response}) {
+      return use(response);
+    }
+
+    const response = ReactServerDOMClient.createFromReadableStream(stream);
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+
+    await act(() => {
+      root.render(<ClientRoot response={response} />);
+    });
+
+    expect(container.innerHTML).toBe('');
+
+    await act(() => {
+      resolveClientComponentChunk();
+    });
+
+    expect(container.innerHTML).toBe('<span>Hello, World!</span>');
+  });
+
   it('should progressively reveal server components', async () => {
     let reportedErrors = [];
 
@@ -1128,6 +1177,47 @@ describe('ReactFlightDOMBrowser', () => {
 
     const result = await actionProxy1('world');
     expect(result).toBe('Hello world');
+  });
+
+  it('can pass an async server exports that resolves later to an outline object like a Map', async () => {
+    let resolve;
+    const chunkPromise = new Promise(r => (resolve = r));
+
+    function action() {}
+    const serverModule = serverExports(
+      {
+        action: action,
+      },
+      chunkPromise,
+    );
+
+    // Send the action to the client
+    const stream = ReactServerDOMServer.renderToReadableStream(
+      {action: serverModule.action},
+      webpackMap,
+    );
+    const response =
+      await ReactServerDOMClient.createFromReadableStream(stream);
+
+    // Pass the action back to the server inside a Map
+
+    const map = new Map();
+    map.set('action', response.action);
+
+    const body = await ReactServerDOMClient.encodeReply(map);
+    const resultPromise = ReactServerDOMServer.decodeReply(
+      body,
+      webpackServerMap,
+    );
+
+    // We couldn't yet resolve the server reference because we haven't loaded
+    // its chunk yet in the new server instance. We now resolve it which loads
+    // it asynchronously.
+    await resolve();
+
+    const result = await resultPromise;
+    expect(result instanceof Map).toBe(true);
+    expect(result.get('action')).toBe(action);
   });
 
   it('supports Float hints before the first await in server components in Fiber', async () => {

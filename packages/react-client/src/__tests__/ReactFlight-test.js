@@ -10,13 +10,33 @@
 
 'use strict';
 
+if (typeof Blob === 'undefined') {
+  global.Blob = require('buffer').Blob;
+}
+if (typeof File === 'undefined' || typeof FormData === 'undefined') {
+  global.File = require('undici').File;
+  global.FormData = require('undici').FormData;
+}
+
 function normalizeCodeLocInfo(str) {
   return (
     str &&
-    str.replace(/\n +(?:at|in) ([\S]+)[^\n]*/g, function (m, name) {
-      return '\n    in ' + name + (/\d/.test(m) ? ' (at **)' : '');
+    str.replace(/^ +(?:at|in) ([\S]+)[^\n]*/gm, function (m, name) {
+      return '    in ' + name + (/\d/.test(m) ? ' (at **)' : '');
     })
   );
+}
+
+function getDebugInfo(obj) {
+  const debugInfo = obj._debugInfo;
+  if (debugInfo) {
+    for (let i = 0; i < debugInfo.length; i++) {
+      if (typeof debugInfo[i].stack === 'string') {
+        debugInfo[i].stack = normalizeCodeLocInfo(debugInfo[i].stack);
+      }
+    }
+  }
+  return debugInfo;
 }
 
 const heldValues = [];
@@ -213,8 +233,19 @@ describe('ReactFlight', () => {
     await act(async () => {
       const rootModel = await ReactNoopFlightClient.read(transport);
       const greeting = rootModel.greeting;
-      expect(greeting._debugInfo).toEqual(
-        __DEV__ ? [{name: 'Greeting', env: 'Server', owner: null}] : undefined,
+      expect(getDebugInfo(greeting)).toEqual(
+        __DEV__
+          ? [
+              {
+                name: 'Greeting',
+                env: 'Server',
+                owner: null,
+                stack: gate(flag => flag.enableOwnerStacks)
+                  ? '    in Object.<anonymous> (at **)'
+                  : undefined,
+              },
+            ]
+          : undefined,
       );
       ReactNoop.render(greeting);
     });
@@ -240,8 +271,19 @@ describe('ReactFlight', () => {
 
     await act(async () => {
       const promise = ReactNoopFlightClient.read(transport);
-      expect(promise._debugInfo).toEqual(
-        __DEV__ ? [{name: 'Greeting', env: 'Server', owner: null}] : undefined,
+      expect(getDebugInfo(promise)).toEqual(
+        __DEV__
+          ? [
+              {
+                name: 'Greeting',
+                env: 'Server',
+                owner: null,
+                stack: gate(flag => flag.enableOwnerStacks)
+                  ? '    in Object.<anonymous> (at **)'
+                  : undefined,
+              },
+            ]
+          : undefined,
       );
       ReactNoop.render(await promise);
     });
@@ -513,39 +555,37 @@ describe('ReactFlight', () => {
       `);
   });
 
-  if (typeof FormData !== 'undefined') {
-    it('can transport FormData (no blobs)', async () => {
-      function ComponentClient({prop}) {
-        return `
-          formData: ${prop instanceof FormData}
-          hi: ${prop.get('hi')}
-          multiple: ${prop.getAll('multiple')}
-          content: ${JSON.stringify(Array.from(prop))}
-        `;
-      }
-      const Component = clientReference(ComponentClient);
+  it('can transport FormData (no blobs)', async () => {
+    function ComponentClient({prop}) {
+      return `
+        formData: ${prop instanceof FormData}
+        hi: ${prop.get('hi')}
+        multiple: ${prop.getAll('multiple')}
+        content: ${JSON.stringify(Array.from(prop))}
+      `;
+    }
+    const Component = clientReference(ComponentClient);
 
-      const formData = new FormData();
-      formData.append('hi', 'world');
-      formData.append('multiple', 1);
-      formData.append('multiple', 2);
+    const formData = new FormData();
+    formData.append('hi', 'world');
+    formData.append('multiple', 1);
+    formData.append('multiple', 2);
 
-      const model = <Component prop={formData} />;
+    const model = <Component prop={formData} />;
 
-      const transport = ReactNoopFlightServer.render(model);
+    const transport = ReactNoopFlightServer.render(model);
 
-      await act(async () => {
-        ReactNoop.render(await ReactNoopFlightClient.read(transport));
-      });
-
-      expect(ReactNoop).toMatchRenderedOutput(`
-          formData: true
-          hi: world
-          multiple: 1,2
-          content: [["hi","world"],["multiple","1"],["multiple","2"]]
-        `);
+    await act(async () => {
+      ReactNoop.render(await ReactNoopFlightClient.read(transport));
     });
-  }
+
+    expect(ReactNoop).toMatchRenderedOutput(`
+        formData: true
+        hi: world
+        multiple: 1,2
+        content: [["hi","world"],["multiple","1"],["multiple","2"]]
+      `);
+  });
 
   it('can transport cyclic objects', async () => {
     function ComponentClient({prop}) {
@@ -898,12 +938,28 @@ describe('ReactFlight', () => {
     });
   });
 
+  // @gate renameElementSymbol
   it('should emit descriptions of errors in dev', async () => {
     const ClientErrorBoundary = clientReference(ErrorBoundary);
 
     function Throw({value}) {
       throw value;
     }
+
+    function RenderInlined() {
+      const inlinedElement = {
+        $$typeof: Symbol.for('react.element'),
+        type: () => {},
+        key: null,
+        ref: null,
+        props: {},
+        _owner: null,
+      };
+      return inlinedElement;
+    }
+
+    // We wrap in lazy to ensure the errors throws lazily.
+    const LazyInlined = React.lazy(async () => ({default: RenderInlined}));
 
     const testCases = (
       <>
@@ -968,6 +1024,18 @@ describe('ReactFlight', () => {
         <ClientErrorBoundary expectedMessage={'["array"]'}>
           <div>
             <Throw value={['array']} />
+          </div>
+        </ClientErrorBoundary>
+        <ClientErrorBoundary
+          expectedMessage={
+            'A React Element from an older version of React was rendered. ' +
+            'This is not supported. It can happen if:\n' +
+            '- Multiple copies of the "react" package is used.\n' +
+            '- A library pre-bundled an old copy of "react" or "react/jsx-runtime".\n' +
+            '- A compiler tries to "inline" JSX instead of using the runtime.'
+          }>
+          <div>
+            <LazyInlined />
           </div>
         </ClientErrorBoundary>
       </>
@@ -1688,7 +1756,6 @@ describe('ReactFlight', () => {
     expect(errors).toEqual([]);
   });
 
-  // @gate enableServerComponentKeys
   it('preserves state when keying a server component', async () => {
     function StatefulClient({name}) {
       const [state] = React.useState(name.toLowerCase());
@@ -1745,7 +1812,6 @@ describe('ReactFlight', () => {
     );
   });
 
-  // @gate enableServerComponentKeys
   it('does not inherit keys of children inside a server component', async () => {
     function StatefulClient({name, initial}) {
       const [state] = React.useState(initial);
@@ -1818,7 +1884,6 @@ describe('ReactFlight', () => {
     );
   });
 
-  // @gate enableServerComponentKeys
   it('shares state between single return and array return in a parent', async () => {
     function StatefulClient({name, initial}) {
       const [state] = React.useState(initial);
@@ -2059,7 +2124,6 @@ describe('ReactFlight', () => {
     );
   });
 
-  // @gate enableServerComponentKeys
   it('preserves state with keys split across async work', async () => {
     let resolve;
     const promise = new Promise(r => (resolve = r));
@@ -2231,9 +2295,11 @@ describe('ReactFlight', () => {
       return <span>!</span>;
     }
 
-    const lazy = React.lazy(async () => ({
-      default: <ThirdPartyLazyComponent />,
-    }));
+    const lazy = React.lazy(async function myLazy() {
+      return {
+        default: <ThirdPartyLazyComponent />,
+      };
+    });
 
     function ThirdPartyComponent() {
       return <span>stranger</span>;
@@ -2267,31 +2333,61 @@ describe('ReactFlight', () => {
 
     await act(async () => {
       const promise = ReactNoopFlightClient.read(transport);
-      expect(promise._debugInfo).toEqual(
+      expect(getDebugInfo(promise)).toEqual(
         __DEV__
-          ? [{name: 'ServerComponent', env: 'Server', owner: null}]
+          ? [
+              {
+                name: 'ServerComponent',
+                env: 'Server',
+                owner: null,
+                stack: gate(flag => flag.enableOwnerStacks)
+                  ? '    in Object.<anonymous> (at **)'
+                  : undefined,
+              },
+            ]
           : undefined,
       );
       const result = await promise;
       const thirdPartyChildren = await result.props.children[1];
       // We expect the debug info to be transferred from the inner stream to the outer.
-      expect(thirdPartyChildren[0]._debugInfo).toEqual(
+      expect(getDebugInfo(thirdPartyChildren[0])).toEqual(
         __DEV__
-          ? [{name: 'ThirdPartyComponent', env: 'third-party', owner: null}]
+          ? [
+              {
+                name: 'ThirdPartyComponent',
+                env: 'third-party',
+                owner: null,
+                stack: gate(flag => flag.enableOwnerStacks)
+                  ? '    in Object.<anonymous> (at **)'
+                  : undefined,
+              },
+            ]
           : undefined,
       );
-      expect(thirdPartyChildren[1]._debugInfo).toEqual(
+      expect(getDebugInfo(thirdPartyChildren[1])).toEqual(
         __DEV__
-          ? [{name: 'ThirdPartyLazyComponent', env: 'third-party', owner: null}]
+          ? [
+              {
+                name: 'ThirdPartyLazyComponent',
+                env: 'third-party',
+                owner: null,
+                stack: gate(flag => flag.enableOwnerStacks)
+                  ? '    in myLazy (at **)\n    in lazyInitializer (at **)'
+                  : undefined,
+              },
+            ]
           : undefined,
       );
-      expect(thirdPartyChildren[2]._debugInfo).toEqual(
+      expect(getDebugInfo(thirdPartyChildren[2])).toEqual(
         __DEV__
           ? [
               {
                 name: 'ThirdPartyFragmentComponent',
                 env: 'third-party',
                 owner: null,
+                stack: gate(flag => flag.enableOwnerStacks)
+                  ? '    in Object.<anonymous> (at **)'
+                  : undefined,
               },
             ]
           : undefined,
@@ -2355,24 +2451,47 @@ describe('ReactFlight', () => {
 
     await act(async () => {
       const promise = ReactNoopFlightClient.read(transport);
-      expect(promise._debugInfo).toEqual(
+      expect(getDebugInfo(promise)).toEqual(
         __DEV__
-          ? [{name: 'ServerComponent', env: 'Server', owner: null}]
+          ? [
+              {
+                name: 'ServerComponent',
+                env: 'Server',
+                owner: null,
+                stack: gate(flag => flag.enableOwnerStacks)
+                  ? '    in Object.<anonymous> (at **)'
+                  : undefined,
+              },
+            ]
           : undefined,
       );
       const result = await promise;
       const thirdPartyFragment = await result.props.children;
-      expect(thirdPartyFragment._debugInfo).toEqual(
-        __DEV__ ? [{name: 'Keyed', env: 'Server', owner: null}] : undefined,
+      expect(getDebugInfo(thirdPartyFragment)).toEqual(
+        __DEV__
+          ? [
+              {
+                name: 'Keyed',
+                env: 'Server',
+                owner: null,
+                stack: gate(flag => flag.enableOwnerStacks)
+                  ? '    in ServerComponent (at **)'
+                  : undefined,
+              },
+            ]
+          : undefined,
       );
       // We expect the debug info to be transferred from the inner stream to the outer.
-      expect(thirdPartyFragment.props.children._debugInfo).toEqual(
+      expect(getDebugInfo(thirdPartyFragment.props.children)).toEqual(
         __DEV__
           ? [
               {
                 name: 'ThirdPartyAsyncIterableComponent',
                 env: 'third-party',
                 owner: null,
+                stack: gate(flag => flag.enableOwnerStacks)
+                  ? '    in Object.<anonymous> (at **)'
+                  : undefined,
               },
             ]
           : undefined,
@@ -2465,10 +2584,24 @@ describe('ReactFlight', () => {
       // We've rendered down to the span.
       expect(greeting.type).toBe('span');
       if (__DEV__) {
-        const greetInfo = {name: 'Greeting', env: 'Server', owner: null};
-        expect(greeting._debugInfo).toEqual([
+        const greetInfo = {
+          name: 'Greeting',
+          env: 'Server',
+          owner: null,
+          stack: gate(flag => flag.enableOwnerStacks)
+            ? '    in Object.<anonymous> (at **)'
+            : undefined,
+        };
+        expect(getDebugInfo(greeting)).toEqual([
           greetInfo,
-          {name: 'Container', env: 'Server', owner: greetInfo},
+          {
+            name: 'Container',
+            env: 'Server',
+            owner: greetInfo,
+            stack: gate(flag => flag.enableOwnerStacks)
+              ? '    in Greeting (at **)'
+              : undefined,
+          },
         ]);
         // The owner that created the span was the outer server component.
         // We expect the debug info to be referentially equal to the owner.

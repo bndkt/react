@@ -20,6 +20,7 @@ import typeof * as ExportsType from './ReactFeatureFlags.native-oss';
 const __TODO_NEXT_RN_MAJOR__ = false;
 export const enableRefAsProp = __TODO_NEXT_RN_MAJOR__;
 export const disableStringRefs = __TODO_NEXT_RN_MAJOR__;
+export const enableFastJSX = __TODO_NEXT_RN_MAJOR__;
 export const disableLegacyMode = __TODO_NEXT_RN_MAJOR__;
 export const disableDOMTestUtils = __TODO_NEXT_RN_MAJOR__;
 export const useModernStrictMode = __TODO_NEXT_RN_MAJOR__;
@@ -51,9 +52,8 @@ export const disableLegacyContext = __NEXT_RN_MAJOR__;
 export const enableTaint = __NEXT_RN_MAJOR__;
 export const enableUnifiedSyncLane = __NEXT_RN_MAJOR__;
 export const enableFizzExternalRuntime = __NEXT_RN_MAJOR__; // DOM-only
-export const enableBinaryFlight = __NEXT_RN_MAJOR__; // DOM-only
-export const enableFlightReadableStream = __NEXT_RN_MAJOR__; // DOM-only
-export const enableServerComponentKeys = __NEXT_RN_MAJOR__;
+export const enableBinaryFlight = true;
+export const enableFlightReadableStream = true;
 export const enableServerComponentLogs = __NEXT_RN_MAJOR__;
 
 // DEV-only but enabled in the next RN Major.
@@ -61,7 +61,7 @@ export const enableServerComponentLogs = __NEXT_RN_MAJOR__;
 export const debugRenderPhaseSideEffectsForStrictMode = __DEV__;
 
 // TODO: decide on React 19
-export const enableUseMemoCacheHook = false;
+export const enableUseMemoCacheHook = true;
 export const enableNoCloningMemoCache = false;
 export const enableUseDeferredValueInitialArg = __EXPERIMENTAL__;
 
@@ -101,10 +101,12 @@ export const allowConcurrentByDefault = false;
 export const enableTransitionTracing = false;
 export const enableDO_NOT_USE_disableStrictPassiveEffect = false;
 export const passChildrenWhenCloningPersistedNodes = false;
-export const enableEarlyReturnForPropDiffing = false;
 export const enableAsyncIterableChildren = false;
+export const enableAddPropertiesFastPath = false;
 
 export const renameElementSymbol = true;
+
+export const enableOwnerStacks = __EXPERIMENTAL__;
 
 // Profiling Only
 export const enableProfilerTimer = __PROFILE__;

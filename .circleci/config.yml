@@ -228,6 +228,13 @@ jobs:
           command: ./scripts/circleci/pack_and_store_devtools_artifacts.sh
       - store_artifacts:
           path: ./build/devtools.tgz
+      # Simplifies getting the extension for local testing
+      - store_artifacts:
+          path: ./build/devtools/chrome-extension.zip
+          destination: react-devtools-chrome-extension.zip
+      - store_artifacts:
+          path: ./build/devtools/firefox-extension.zip
+          destination: react-devtools-firefox-extension.zip
 
   run_devtools_e2e_tests:
     docker: *docker
@@ -639,7 +646,7 @@ workflows:
           # because this used to be called the "next" channel and some
           # downstream consumers might still expect that tag. We can remove this
           # after some time has elapsed and the change has been communicated.
-          dist_tag: "canary,next,beta"
+          dist_tag: "canary,next,rc"
       - publish_prerelease:
           name: Publish to Experimental channel
           requires:
@@ -668,7 +675,7 @@ workflows:
           name: Publish to Canary channel
           commit_sha: << pipeline.git.revision >>
           release_channel: stable
-          dist_tag: "canary,next,beta"
+          dist_tag: "canary,next,rc"
       - publish_prerelease:
           name: Publish to Experimental channel
           requires:

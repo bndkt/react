@@ -34,7 +34,7 @@ export const enableSuspenseCallback = false;
 export const disableLegacyContext = false;
 export const enableTrustedTypesIntegration = false;
 export const disableTextareaChildren = false;
-export const enableComponentStackLocations = false;
+export const enableComponentStackLocations = true;
 export const enableLegacyFBSupport = false;
 export const enableFilterEmptyStringAttributesDOM = true;
 export const enableGetInspectorDataForInstanceInProduction = false;
@@ -46,7 +46,7 @@ export const enableNoCloningMemoCache = false;
 export const enableUseEffectEventHook = false;
 export const favorSafetyOverHydrationPerf = true;
 export const enableInfiniteRenderLoopDetection = false;
-export const enableRenderableContext = false;
+export const enableRenderableContext = true;
 
 export const enableRetryLaneExpiration = false;
 export const retryLaneExpirationMs = 5000;
@@ -64,7 +64,7 @@ export const consoleManagedByDevToolsDuringStrictMode = false;
 
 export const enableTransitionTracing = false;
 
-export const useModernStrictMode = false;
+export const useModernStrictMode = true;
 export const enableDO_NOT_USE_disableStrictPassiveEffect = false;
 export const enableFizzExternalRuntime = true;
 export const enableDeferRootSchedulingToMicrotask = false;
@@ -77,20 +77,22 @@ export const passChildrenWhenCloningPersistedNodes = false;
 export const enableUseDeferredValueInitialArg = __EXPERIMENTAL__;
 export const disableClientCache = true;
 
-export const enableServerComponentKeys = true;
 export const enableServerComponentLogs = true;
 
-export const enableRefAsProp = false;
-export const disableStringRefs = false;
+export const enableRefAsProp = true;
+export const disableStringRefs = true;
+export const enableFastJSX = true;
 
 export const enableReactTestRendererWarning = false;
 export const disableLegacyMode = false;
 export const disableDOMTestUtils = false;
 
 export const disableDefaultPropsExceptForClasses = false;
-export const enableEarlyReturnForPropDiffing = false;
+export const enableAddPropertiesFastPath = false;
 
 export const renameElementSymbol = false;
+
+export const enableOwnerStacks = false;
 
 // Flow magic to verify the exports of this file match the original version.
 ((((null: any): ExportsType): FeatureFlagsType): ExportsType);

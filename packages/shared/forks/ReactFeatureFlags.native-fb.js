@@ -21,27 +21,29 @@ const dynamicFlags: DynamicExportsType = (dynamicFlagsUntyped: any);
 export const {
   alwaysThrottleRetries,
   consoleManagedByDevToolsDuringStrictMode,
-  enableAsyncActions,
-  enableEarlyReturnForPropDiffing,
-  enableComponentStackLocations,
-  enableDeferRootSchedulingToMicrotask,
-  enableInfiniteRenderLoopDetection,
-  enableRenderableContext,
-  enableUnifiedSyncLane,
-  passChildrenWhenCloningPersistedNodes,
-  useModernStrictMode,
   disableDefaultPropsExceptForClasses,
+  disableStringRefs,
+  enableAddPropertiesFastPath,
+  enableDeferRootSchedulingToMicrotask,
+  enableFastJSX,
+  enableInfiniteRenderLoopDetection,
+  enableRefAsProp,
+  passChildrenWhenCloningPersistedNodes,
 } = dynamicFlags;
 
 // The rest of the flags are static for better dead code elimination.
+export const enableAsyncActions = true;
 export const enableDebugTracing = false;
 export const enableAsyncDebugInfo = false;
+export const enableRenderableContext = true;
 export const enableSchedulingProfiler = __PROFILE__;
 export const enableProfilerTimer = __PROFILE__;
 export const enableProfilerCommitHooks = __PROFILE__;
 export const enableProfilerNestedUpdatePhase = __PROFILE__;
 export const enableUpdaterTracking = __PROFILE__;
+export const enableUnifiedSyncLane = true;
 export const enableCache = true;
+export const enableComponentStackLocations = true;
 export const enableLegacyCache = false;
 export const enableBinaryFlight = true;
 export const enableFlightReadableStream = true;
@@ -68,6 +70,7 @@ export const favorSafetyOverHydrationPerf = true;
 export const enableLegacyFBSupport = false;
 export const enableFilterEmptyStringAttributesDOM = true;
 export const enableGetInspectorDataForInstanceInProduction = true;
+export const useModernStrictMode = true;
 
 export const renameElementSymbol = false;
 
@@ -90,17 +93,13 @@ export const enableFizzExternalRuntime = true;
 export const enableUseDeferredValueInitialArg = true;
 export const disableClientCache = true;
 
-export const enableServerComponentKeys = true;
 export const enableServerComponentLogs = true;
-
-// TODO: Roll out with GK. Don't keep as dynamic flag for too long, though,
-// because JSX is an extremely hot path.
-export const enableRefAsProp = false;
-export const disableStringRefs = false;
 
 export const enableReactTestRendererWarning = false;
 export const disableLegacyMode = false;
 export const disableDOMTestUtils = false;
+
+export const enableOwnerStacks = false;
 
 // Flow magic to verify the exports of this file match the original version.
 ((((null: any): ExportsType): FeatureFlagsType): ExportsType);

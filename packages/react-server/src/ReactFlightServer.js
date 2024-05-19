@@ -11,13 +11,15 @@ import type {Chunk, BinaryChunk, Destination} from './ReactServerStreamConfig';
 
 import type {Postpone} from 'react/src/ReactPostpone';
 
+import type {TemporaryReferenceSet} from './ReactFlightServerTemporaryReferences';
+
 import {
   enableBinaryFlight,
   enablePostpone,
   enableTaint,
-  enableServerComponentKeys,
   enableRefAsProp,
   enableServerComponentLogs,
+  enableOwnerStacks,
 } from 'shared/ReactFeatureFlags';
 
 import {enableFlightReadableStream} from 'shared/ReactFeatureFlags';
@@ -62,7 +64,6 @@ import type {
 } from 'shared/ReactTypes';
 import type {ReactElement} from 'shared/ReactElementType';
 import type {LazyComponent} from 'react/src/ReactLazy';
-import type {TemporaryReference} from './ReactFlightServerTemporaryReferences';
 
 import {
   resolveClientReferenceMetadata,
@@ -73,13 +74,15 @@ import {
   isServerReference,
   supportsRequestStorage,
   requestStorage,
+  supportsComponentStorage,
+  componentStorage,
   createHints,
   initAsyncDebugInfo,
 } from './ReactFlightServerConfig';
 
 import {
-  isTemporaryReference,
-  resolveTemporaryReferenceID,
+  resolveTemporaryReference,
+  isOpaqueTemporaryReference,
 } from './ReactFlightServerTemporaryReferences';
 
 import {
@@ -89,15 +92,14 @@ import {
   getThenableStateAfterSuspending,
   resetHooksForRequest,
 } from './ReactFlightHooks';
-import {
-  DefaultAsyncDispatcher,
-  currentOwner,
-  setCurrentOwner,
-} from './flight/ReactFlightAsyncDispatcher';
+import {DefaultAsyncDispatcher} from './flight/ReactFlightAsyncDispatcher';
+
+import {resolveOwner, setCurrentOwner} from './flight/ReactFlightCurrentOwner';
 
 import {
   getIteratorFn,
   REACT_ELEMENT_TYPE,
+  REACT_LEGACY_ELEMENT_TYPE,
   REACT_FORWARD_REF_TYPE,
   REACT_FRAGMENT_TYPE,
   REACT_LAZY_TYPE,
@@ -124,6 +126,98 @@ import binaryToComparableString from 'shared/binaryToComparableString';
 
 import {SuspenseException, getSuspendedThenable} from './ReactFlightThenable';
 
+// TODO: Make this configurable on the Request.
+const externalRegExp = /\/node\_modules\/| \(node\:| node\:|\(\<anonymous\>\)/;
+
+let callComponentFrame: null | string = null;
+let callIteratorFrame: null | string = null;
+let callLazyInitFrame: null | string = null;
+
+function isNotExternal(stackFrame: string): boolean {
+  return !externalRegExp.test(stackFrame);
+}
+
+function initCallComponentFrame(): string {
+  // Extract the stack frame of the callComponentInDEV function.
+  const error = callComponentInDEV(Error, 'react-stack-top-frame', {});
+  const stack = error.stack;
+  const startIdx = stack.startsWith('Error: react-stack-top-frame\n') ? 29 : 0;
+  const endIdx = stack.indexOf('\n', startIdx);
+  if (endIdx === -1) {
+    return stack.slice(startIdx);
+  }
+  return stack.slice(startIdx, endIdx);
+}
+
+function initCallIteratorFrame(): string {
+  // Extract the stack frame of the callIteratorInDEV function.
+  try {
+    (callIteratorInDEV: any)({next: null});
+    return '';
+  } catch (error) {
+    const stack = error.stack;
+    const startIdx = stack.startsWith('TypeError: ')
+      ? stack.indexOf('\n') + 1
+      : 0;
+    const endIdx = stack.indexOf('\n', startIdx);
+    if (endIdx === -1) {
+      return stack.slice(startIdx);
+    }
+    return stack.slice(startIdx, endIdx);
+  }
+}
+
+function initCallLazyInitFrame(): string {
+  // Extract the stack frame of the callLazyInitInDEV function.
+  const error = callLazyInitInDEV({
+    $$typeof: REACT_LAZY_TYPE,
+    _init: Error,
+    _payload: 'react-stack-top-frame',
+  });
+  const stack = error.stack;
+  const startIdx = stack.startsWith('Error: react-stack-top-frame\n') ? 29 : 0;
+  const endIdx = stack.indexOf('\n', startIdx);
+  if (endIdx === -1) {
+    return stack.slice(startIdx);
+  }
+  return stack.slice(startIdx, endIdx);
+}
+
+function filterDebugStack(error: Error): string {
+  // Since stacks can be quite large and we pass a lot of them, we filter them out eagerly
+  // to save bandwidth even in DEV. We'll also replay these stacks on the client so by
+  // stripping them early we avoid that overhead. Otherwise we'd normally just rely on
+  // the DevTools or framework's ignore lists to filter them out.
+  let stack = error.stack;
+  if (stack.startsWith('Error: react-stack-top-frame\n')) {
+    // V8's default formatting prefixes with the error message which we
+    // don't want/need.
+    stack = stack.slice(29);
+  }
+  const frames = stack.split('\n').slice(1);
+  if (callComponentFrame === null) {
+    callComponentFrame = initCallComponentFrame();
+  }
+  let lastFrameIdx = frames.indexOf(callComponentFrame);
+  if (lastFrameIdx === -1) {
+    if (callLazyInitFrame === null) {
+      callLazyInitFrame = initCallLazyInitFrame();
+    }
+    lastFrameIdx = frames.indexOf(callLazyInitFrame);
+    if (lastFrameIdx === -1) {
+      if (callIteratorFrame === null) {
+        callIteratorFrame = initCallIteratorFrame();
+      }
+      lastFrameIdx = frames.indexOf(callIteratorFrame);
+    }
+  }
+  if (lastFrameIdx !== -1) {
+    // Cut off everything after our "callComponent" slot since it'll be Flight internals.
+    frames.length = lastFrameIdx;
+  }
+  return frames.filter(isNotExternal).join('\n');
+}
+
 initAsyncDebugInfo();
 
 function patchConsole(consoleInst: typeof console, methodName: string) {
@@ -147,10 +241,7 @@ function patchConsole(consoleInst: typeof console, methodName: string) {
         // Extract the stack. Not all console logs print the full stack but they have at
         // least the line it was called from. We could optimize transfer by keeping just
         // one stack frame but keeping it simple for now and include all frames.
-        let stack = new Error().stack;
-        if (stack.startsWith('Error: \n')) {
-          stack = stack.slice(8);
-        }
+        let stack = filterDebugStack(new Error('react-stack-top-frame'));
         const firstLine = stack.indexOf('\n');
         if (firstLine === -1) {
           stack = '';
@@ -162,7 +253,7 @@ function patchConsole(consoleInst: typeof console, methodName: string) {
         // We don't currently use this id for anything but we emit it so that we can later
         // refer to previous logs in debug info to associate them with a component.
         const id = request.nextChunkId++;
-        const owner: null | ReactComponentInfo = currentOwner;
+        const owner: null | ReactComponentInfo = resolveOwner();
         emitConsoleChunk(request, id, methodName, owner, stack, arguments);
       }
       // $FlowFixMe[prop-missing]
@@ -266,10 +357,6 @@ const COMPLETED = 1;
 const ABORTED = 3;
 const ERRORED = 4;
 
-// object reference status
-const SEEN_BUT_NOT_YET_OUTLINED = -1;
-const NEVER_OUTLINED = -2;
-
 type Task = {
   id: number,
   status: 0 | 1 | 3 | 4,
@@ -303,7 +390,8 @@ export type Request = {
   writtenSymbols: Map<symbol, number>,
   writtenClientReferences: Map<ClientReferenceKey, number>,
   writtenServerReferences: Map<ServerReference<any>, number>,
-  writtenObjects: WeakMap<Reference, number>,
+  writtenObjects: WeakMap<Reference, string>,
+  temporaryReferences: void | TemporaryReferenceSet,
   identifierPrefix: string,
   identifierCount: number,
   taintCleanupQueue: Array<string | bigint>,
@@ -362,6 +450,7 @@ export function createRequest(
   identifierPrefix?: string,
   onPostpone: void | ((reason: string) => void),
   environmentName: void | string,
+  temporaryReferences: void | TemporaryReferenceSet,
 ): Request {
   if (
     ReactSharedInternals.A !== null &&
@@ -401,6 +490,7 @@ export function createRequest(
     writtenClientReferences: new Map(),
     writtenServerReferences: new Map(),
     writtenObjects: new WeakMap(),
+    temporaryReferences: temporaryReferences,
     identifierPrefix: identifierPrefix || '',
     identifierCount: 1,
     taintCleanupQueue: cleanupQueue,
@@ -622,6 +712,20 @@ function serializeReadableStream(
   return serializeByValueID(streamTask.id);
 }
 
+// This indirect exists so we can exclude its stack frame in DEV (and anything below it).
+/** @noinline */
+function callIteratorInDEV(
+  iterator: $AsyncIterator<ReactClientValue, ReactClientValue, void>,
+  progress: (
+    entry:
+      | {done: false, +value: ReactClientValue, ...}
+      | {done: true, +value: ReactClientValue, ...},
+  ) => void,
+  error: (reason: mixed) => void,
+) {
+  iterator.next().then(progress, error);
+}
+
 function serializeAsyncIterable(
   request: Request,
   task: Task,
@@ -698,7 +802,11 @@ function serializeAsyncIterable(
         request.pendingChunks++;
         tryStreamTask(request, streamTask);
         enqueueFlush(request);
-        iterator.next().then(progress, error);
+        if (__DEV__) {
+          callIteratorInDEV(iterator, progress, error);
+        } else {
+          iterator.next().then(progress, error);
+        }
       } catch (x) {
         error(x);
         return;
@@ -732,7 +840,11 @@ function serializeAsyncIterable(
     }
   }
   request.abortListeners.add(error);
-  iterator.next().then(progress, error);
+  if (__DEV__) {
+    callIteratorInDEV(iterator, progress, error);
+  } else {
+    iterator.next().then(progress, error);
+  }
   return serializeByValueID(streamTask.id);
 }
 
@@ -810,13 +922,49 @@ function createLazyWrapperAroundWakeable(wakeable: Wakeable) {
   return lazyType;
 }
 
+// This indirect exists so we can exclude its stack frame in DEV (and anything below it).
+/** @noinline */
+function callComponentInDEV<Props, R>(
+  Component: (p: Props, arg: void) => R,
+  props: Props,
+  componentDebugInfo: ReactComponentInfo,
+): R {
+  // The secondArg is always undefined in Server Components since refs error early.
+  const secondArg = undefined;
+  setCurrentOwner(componentDebugInfo);
+  try {
+    if (supportsComponentStorage) {
+      // Run the component in an Async Context that tracks the current owner.
+      return componentStorage.run(
+        componentDebugInfo,
+        Component,
+        props,
+        secondArg,
+      );
+    } else {
+      return Component(props, secondArg);
+    }
+  } finally {
+    setCurrentOwner(null);
+  }
+}
+
+// This indirect exists so we can exclude its stack frame in DEV (and anything below it).
+/** @noinline */
+function callLazyInitInDEV(lazy: LazyComponent<any, any>): any {
+  const payload = lazy._payload;
+  const init = lazy._init;
+  return init(payload);
+}
+
 function renderFunctionComponent<Props>(
   request: Request,
   task: Task,
   key: null | string,
   Component: (p: Props, arg: void) => any,
   props: Props,
-  owner: null | ReactComponentInfo,
+  owner: null | ReactComponentInfo, // DEV-only
+  stack: null | string, // DEV-only
 ): ReactJSONValue {
   // Reset the task's thenable state before continuing, so that if a later
   // component suspends we can reuse the same task object. If the same
@@ -824,7 +972,9 @@ function renderFunctionComponent<Props>(
   const prevThenableState = task.thenableState;
   task.thenableState = null;
 
-  let componentDebugInfo: null | ReactComponentInfo = null;
+  let result;
+
+  let componentDebugInfo: ReactComponentInfo;
   if (__DEV__) {
     if (debugID === null) {
       // We don't have a chunk to assign debug info. We need to outline this
@@ -847,26 +997,21 @@ function renderFunctionComponent<Props>(
         env: request.environmentName,
         owner: owner,
       };
+      if (enableOwnerStacks) {
+        (componentDebugInfo: any).stack = stack;
+      }
       // We outline this model eagerly so that we can refer to by reference as an owner.
       // If we had a smarter way to dedupe we might not have to do this if there ends up
       // being no references to this as an owner.
       outlineModel(request, componentDebugInfo);
       emitDebugChunk(request, componentDebugID, componentDebugInfo);
     }
-  }
-
-  prepareToUseHooksForComponent(prevThenableState, componentDebugInfo);
-  // The secondArg is always undefined in Server Components since refs error early.
-  const secondArg = undefined;
-  let result;
-  if (__DEV__) {
-    setCurrentOwner(componentDebugInfo);
-    try {
-      result = Component(props, secondArg);
-    } finally {
-      setCurrentOwner(null);
-    }
+    prepareToUseHooksForComponent(prevThenableState, componentDebugInfo);
+    result = callComponentInDEV(Component, props, componentDebugInfo);
   } else {
+    prepareToUseHooksForComponent(prevThenableState, null);
+    // The secondArg is always undefined in Server Components since refs error early.
+    const secondArg = undefined;
     result = Component(props, secondArg);
   }
   if (typeof result === 'object' && result !== null) {
@@ -984,7 +1129,7 @@ function renderFragment(
   task: Task,
   children: $ReadOnlyArray<ReactClientValue>,
 ): ReactJSONValue {
-  if (enableServerComponentKeys && task.keyPath !== null) {
+  if (task.keyPath !== null) {
     // We have a Server Component that specifies a key but we're now splitting
     // the tree using a fragment.
     const fragment = [
@@ -1043,7 +1188,7 @@ function renderAsyncFragment(
   children: $AsyncIterable<ReactClientValue, ReactClientValue, void>,
   getAsyncIterator: () => $AsyncIterator<any, any, any>,
 ): ReactJSONValue {
-  if (enableServerComponentKeys && task.keyPath !== null) {
+  if (task.keyPath !== null) {
     // We have a Server Component that specifies a key but we're now splitting
     // the tree using a fragment.
     const fragment = [
@@ -1085,12 +1230,8 @@ function renderClientElement(
   key: null | string,
   props: any,
   owner: null | ReactComponentInfo, // DEV-only
+  stack: null | string, // DEV-only
 ): ReactJSONValue {
-  if (!enableServerComponentKeys) {
-    return __DEV__
-      ? [REACT_ELEMENT_TYPE, type, key, props, owner]
-      : [REACT_ELEMENT_TYPE, type, key, props];
-  }
   // We prepend the terminal client element that actually gets serialized with
   // the keys of any Server Components which are not serialized.
   const keyPath = task.keyPath;
@@ -1100,7 +1241,9 @@ function renderClientElement(
     key = keyPath + ',' + key;
   }
   const element = __DEV__
-    ? [REACT_ELEMENT_TYPE, type, key, props, owner]
+    ? enableOwnerStacks
+      ? [REACT_ELEMENT_TYPE, type, key, props, owner, stack]
+      : [REACT_ELEMENT_TYPE, type, key, props, owner]
     : [REACT_ELEMENT_TYPE, type, key, props];
   if (task.implicitSlot && key !== null) {
     // The root Server Component had no key so it was in an implicit slot.
@@ -1148,6 +1291,7 @@ function renderElement(
   ref: mixed,
   props: any,
   owner: null | ReactComponentInfo, // DEV only
+  stack: null | string, // DEV only
 ): ReactJSONValue {
   if (ref !== null && ref !== undefined) {
     // When the ref moves to the regular props object this will implicitly
@@ -1166,15 +1310,23 @@ function renderElement(
     }
   }
   if (typeof type === 'function') {
-    if (isClientReference(type) || isTemporaryReference(type)) {
+    if (isClientReference(type) || isOpaqueTemporaryReference(type)) {
       // This is a reference to a Client Component.
-      return renderClientElement(task, type, key, props, owner);
+      return renderClientElement(task, type, key, props, owner, stack);
     }
     // This is a Server Component.
-    return renderFunctionComponent(request, task, key, type, props, owner);
+    return renderFunctionComponent(
+      request,
+      task,
+      key,
+      type,
+      props,
+      owner,
+      stack,
+    );
   } else if (typeof type === 'string') {
     // This is a host element. E.g. HTML.
-    return renderClientElement(task, type, key, props, owner);
+    return renderClientElement(task, type, key, props, owner, stack);
   } else if (typeof type === 'symbol') {
     if (type === REACT_FRAGMENT_TYPE && key === null) {
       // For key-less fragments, we add a small optimization to avoid serializing
@@ -1195,17 +1347,22 @@ function renderElement(
     }
     // This might be a built-in React component. We'll let the client decide.
     // Any built-in works as long as its props are serializable.
-    return renderClientElement(task, type, key, props, owner);
+    return renderClientElement(task, type, key, props, owner, stack);
   } else if (type != null && typeof type === 'object') {
     if (isClientReference(type)) {
       // This is a reference to a Client Component.
-      return renderClientElement(task, type, key, props, owner);
+      return renderClientElement(task, type, key, props, owner, stack);
     }
     switch (type.$$typeof) {
       case REACT_LAZY_TYPE: {
-        const payload = type._payload;
-        const init = type._init;
-        const wrappedType = init(payload);
+        let wrappedType;
+        if (__DEV__) {
+          wrappedType = callLazyInitInDEV(type);
+        } else {
+          const payload = type._payload;
+          const init = type._init;
+          wrappedType = init(payload);
+        }
         return renderElement(
           request,
           task,
@@ -1214,6 +1371,7 @@ function renderElement(
           ref,
           props,
           owner,
+          stack,
         );
       }
       case REACT_FORWARD_REF_TYPE: {
@@ -1224,10 +1382,20 @@ function renderElement(
           type.render,
           props,
           owner,
+          stack,
         );
       }
       case REACT_MEMO_TYPE: {
-        return renderElement(request, task, type.type, key, ref, props, owner);
+        return renderElement(
+          request,
+          task,
+          type.type,
+          key,
+          ref,
+          props,
+          owner,
+          stack,
+        );
       }
     }
   }
@@ -1257,11 +1425,11 @@ function createTask(
   if (typeof model === 'object' && model !== null) {
     // If we're about to write this into a new task we can assign it an ID early so that
     // any other references can refer to the value we're about to write.
-    if (enableServerComponentKeys && (keyPath !== null || implicitSlot)) {
+    if (keyPath !== null || implicitSlot) {
       // If we're in some kind of context we can't necessarily reuse this object depending
       // what parent components are used.
     } else {
-      request.writtenObjects.set(model, id);
+      request.writtenObjects.set(model, serializeByValueID(id));
     }
   }
   const task: Task = {
@@ -1340,10 +1508,6 @@ function serializePromiseID(id: number): string {
 
 function serializeServerReferenceID(id: number): string {
   return '$F' + id.toString(16);
-}
-
-function serializeTemporaryReferenceID(id: string): string {
-  return '$T' + id;
 }
 
 function serializeSymbolReference(name: string): string {
@@ -1484,10 +1648,9 @@ function serializeServerReference(
 
 function serializeTemporaryReference(
   request: Request,
-  temporaryReference: TemporaryReference<any>,
+  reference: string,
 ): string {
-  const id = resolveTemporaryReferenceID(temporaryReference);
-  return serializeTemporaryReferenceID(id);
+  return '$T' + reference;
 }
 
 function serializeLargeTextString(request: Request, text: string): string {
@@ -1502,16 +1665,6 @@ function serializeMap(
   map: Map<ReactClientValue, ReactClientValue>,
 ): string {
   const entries = Array.from(map);
-  for (let i = 0; i < entries.length; i++) {
-    const key = entries[i][0];
-    if (typeof key === 'object' && key !== null) {
-      const writtenObjects = request.writtenObjects;
-      const existingId = writtenObjects.get(key);
-      if (existingId === undefined) {
-        writtenObjects.set(key, SEEN_BUT_NOT_YET_OUTLINED);
-      }
-    }
-  }
   const id = outlineModel(request, entries);
   return '$Q' + id.toString(16);
 }
@@ -1524,16 +1677,6 @@ function serializeFormData(request: Request, formData: FormData): string {
 
 function serializeSet(request: Request, set: Set<ReactClientValue>): string {
   const entries = Array.from(set);
-  for (let i = 0; i < entries.length; i++) {
-    const key = entries[i];
-    if (typeof key === 'object' && key !== null) {
-      const writtenObjects = request.writtenObjects;
-      const existingId = writtenObjects.get(key);
-      if (existingId === undefined) {
-        writtenObjects.set(key, SEEN_BUT_NOT_YET_OUTLINED);
-      }
-    }
-  }
   const id = outlineModel(request, entries);
   return '$W' + id.toString(16);
 }
@@ -1745,42 +1888,39 @@ function renderModelDestructive(
     switch ((value: any).$$typeof) {
       case REACT_ELEMENT_TYPE: {
         const writtenObjects = request.writtenObjects;
-        const existingId = writtenObjects.get(value);
-        if (existingId !== undefined) {
-          if (
-            enableServerComponentKeys &&
-            (task.keyPath !== null || task.implicitSlot)
-          ) {
-            // If we're in some kind of context we can't reuse the result of this render or
-            // previous renders of this element. We only reuse elements if they're not wrapped
-            // by another Server Component.
-          } else if (modelRoot === value) {
-            // This is the ID we're currently emitting so we need to write it
-            // once but if we discover it again, we refer to it by id.
-            modelRoot = null;
-          } else if (existingId === SEEN_BUT_NOT_YET_OUTLINED) {
-            // TODO: If we throw here we can treat this as suspending which causes an outline
-            // but that is able to reuse the same task if we're already in one but then that
-            // will be a lazy future value rather than guaranteed to exist but maybe that's good.
-            const newId = outlineModel(request, (value: any));
-            return serializeByValueID(newId);
-          } else {
-            // We've already emitted this as an outlined object, so we can refer to that by its
-            // existing ID. TODO: We should use a lazy reference since, unlike plain objects,
-            // elements might suspend so it might not have emitted yet even if we have the ID for
-            // it. However, this creates an extra wrapper when it's not needed. We should really
-            // detect whether this already was emitted and synchronously available. In that
-            // case we can refer to it synchronously and only make it lazy otherwise.
-            // We currently don't have a data structure that lets us see that though.
-            return serializeByValueID(existingId);
-          }
+        if (task.keyPath !== null || task.implicitSlot) {
+          // If we're in some kind of context we can't reuse the result of this render or
+          // previous renders of this element. We only reuse elements if they're not wrapped
+          // by another Server Component.
         } else {
-          // This is the first time we've seen this object. We may never see it again
-          // so we'll inline it. Mark it as seen. If we see it again, we'll outline.
-          writtenObjects.set(value, SEEN_BUT_NOT_YET_OUTLINED);
-          // The element's props are marked as "never outlined" so that they are inlined into
-          // the same row as the element itself.
-          writtenObjects.set((value: any).props, NEVER_OUTLINED);
+          const existingReference = writtenObjects.get(value);
+          if (existingReference !== undefined) {
+            if (modelRoot === value) {
+              // This is the ID we're currently emitting so we need to write it
+              // once but if we discover it again, we refer to it by id.
+              modelRoot = null;
+            } else {
+              // We've already emitted this as an outlined object, so we can refer to that by its
+              // existing ID. TODO: We should use a lazy reference since, unlike plain objects,
+              // elements might suspend so it might not have emitted yet even if we have the ID for
+              // it. However, this creates an extra wrapper when it's not needed. We should really
+              // detect whether this already was emitted and synchronously available. In that
+              // case we can refer to it synchronously and only make it lazy otherwise.
+              // We currently don't have a data structure that lets us see that though.
+              return existingReference;
+            }
+          } else if (parentPropertyName.indexOf(':') === -1) {
+            // TODO: If the property name contains a colon, we don't dedupe. Escape instead.
+            const parentReference = writtenObjects.get(parent);
+            if (parentReference !== undefined) {
+              // If the parent has a reference, we can refer to this object indirectly
+              // through the property name inside that parent.
+              writtenObjects.set(
+                value,
+                parentReference + ':' + parentPropertyName,
+              );
+            }
+          }
         }
 
         const element: ReactElement = (value: any);
@@ -1822,6 +1962,9 @@ function renderModelDestructive(
           ref,
           props,
           __DEV__ ? element._owner : null,
+          __DEV__ && enableOwnerStacks
+            ? filterDebugStack(element._debugStack)
+            : null,
         );
       }
       case REACT_LAZY_TYPE: {
@@ -1830,9 +1973,14 @@ function renderModelDestructive(
         task.thenableState = null;
 
         const lazy: LazyComponent<any, any> = (value: any);
-        const payload = lazy._payload;
-        const init = lazy._init;
-        const resolvedModel = init(payload);
+        let resolvedModel;
+        if (__DEV__) {
+          resolvedModel = callLazyInitInDEV(lazy);
+        } else {
+          const payload = lazy._payload;
+          const init = lazy._init;
+          resolvedModel = init(payload);
+        }
         if (__DEV__) {
           const debugInfo: ?ReactDebugInfo = lazy._debugInfo;
           if (debugInfo) {
@@ -1857,6 +2005,15 @@ function renderModelDestructive(
           resolvedModel,
         );
       }
+      case REACT_LEGACY_ELEMENT_TYPE: {
+        throw new Error(
+          'A React Element from an older version of React was rendered. ' +
+            'This is not supported. It can happen if:\n' +
+            '- Multiple copies of the "react" package is used.\n' +
+            '- A library pre-bundled an old copy of "react" or "react/jsx-runtime".\n' +
+            '- A compiler tries to "inline" JSX instead of using the runtime.',
+        );
+      }
     }
 
     if (isClientReference(value)) {
@@ -1868,6 +2025,16 @@ function renderModelDestructive(
       );
     }
 
+    if (request.temporaryReferences !== undefined) {
+      const tempRef = resolveTemporaryReference(
+        request.temporaryReferences,
+        value,
+      );
+      if (tempRef !== undefined) {
+        return serializeTemporaryReference(request, tempRef);
+      }
+    }
+
     if (enableTaint) {
       const tainted = TaintRegistryObjects.get(value);
       if (tainted !== undefined) {
@@ -1876,14 +2043,11 @@ function renderModelDestructive(
     }
 
     const writtenObjects = request.writtenObjects;
-    const existingId = writtenObjects.get(value);
+    const existingReference = writtenObjects.get(value);
     // $FlowFixMe[method-unbinding]
     if (typeof value.then === 'function') {
-      if (existingId !== undefined) {
-        if (
-          enableServerComponentKeys &&
-          (task.keyPath !== null || task.implicitSlot)
-        ) {
+      if (existingReference !== undefined) {
+        if (task.keyPath !== null || task.implicitSlot) {
           // If we're in some kind of context we can't reuse the result of this render or
           // previous renders of this element. We only reuse Promises if they're not wrapped
           // by another Server Component.
@@ -1895,33 +2059,52 @@ function renderModelDestructive(
           modelRoot = null;
         } else {
           // We've seen this promise before, so we can just refer to the same result.
-          return serializePromiseID(existingId);
+          return existingReference;
         }
       }
       // We assume that any object with a .then property is a "Thenable" type,
       // or a Promise type. Either of which can be represented by a Promise.
       const promiseId = serializeThenable(request, task, (value: any));
-      writtenObjects.set(value, promiseId);
-      return serializePromiseID(promiseId);
+      const promiseReference = serializePromiseID(promiseId);
+      writtenObjects.set(value, promiseReference);
+      return promiseReference;
     }
 
-    if (existingId !== undefined) {
+    if (existingReference !== undefined) {
       if (modelRoot === value) {
         // This is the ID we're currently emitting so we need to write it
         // once but if we discover it again, we refer to it by id.
         modelRoot = null;
-      } else if (existingId === SEEN_BUT_NOT_YET_OUTLINED) {
-        const newId = outlineModel(request, (value: any));
-        return serializeByValueID(newId);
-      } else if (existingId !== NEVER_OUTLINED) {
+      } else {
         // We've already emitted this as an outlined object, so we can
         // just refer to that by its existing ID.
-        return serializeByValueID(existingId);
+        return existingReference;
       }
-    } else {
-      // This is the first time we've seen this object. We may never see it again
-      // so we'll inline it. Mark it as seen. If we see it again, we'll outline.
-      writtenObjects.set(value, SEEN_BUT_NOT_YET_OUTLINED);
+    } else if (parentPropertyName.indexOf(':') === -1) {
+      // TODO: If the property name contains a colon, we don't dedupe. Escape instead.
+      const parentReference = writtenObjects.get(parent);
+      if (parentReference !== undefined) {
+        // If the parent has a reference, we can refer to this object indirectly
+        // through the property name inside that parent.
+        let propertyName = parentPropertyName;
+        if (isArray(parent) && parent[0] === REACT_ELEMENT_TYPE) {
+          // For elements, we've converted it to an array but we'll have converted
+          // it back to an element before we read the references so the property
+          // needs to be aliased.
+          switch (parentPropertyName) {
+            case '1':
+              propertyName = 'type';
+              break;
+            case '2':
+              propertyName = 'key';
+              break;
+            case '3':
+              propertyName = 'props';
+              break;
+          }
+        }
+        writtenObjects.set(value, parentReference + ':' + propertyName);
+      }
     }
 
     if (isArray(value)) {
@@ -2120,8 +2303,14 @@ function renderModelDestructive(
     if (isServerReference(value)) {
       return serializeServerReference(request, (value: any));
     }
-    if (isTemporaryReference(value)) {
-      return serializeTemporaryReference(request, (value: any));
+    if (request.temporaryReferences !== undefined) {
+      const tempRef = resolveTemporaryReference(
+        request.temporaryReferences,
+        value,
+      );
+      if (tempRef !== undefined) {
+        return serializeTemporaryReference(request, tempRef);
+      }
     }
 
     if (enableTaint) {
@@ -2131,7 +2320,13 @@ function renderModelDestructive(
       }
     }
 
-    if (/^on[A-Z]/.test(parentPropertyName)) {
+    if (isOpaqueTemporaryReference(value)) {
+      throw new Error(
+        'Could not reference an opaque temporary reference. ' +
+          'This is likely due to misconfiguring the temporaryReferences options ' +
+          'on the server.',
+      );
+    } else if (/^on[A-Z]/.test(parentPropertyName)) {
       throw new Error(
         'Event handlers cannot be passed to Client Component props.' +
           describeObjectForErrorMessage(parent, parentPropertyName) +
@@ -2478,6 +2673,15 @@ function renderConsoleValue(
         (value: any),
       );
     }
+    if (request.temporaryReferences !== undefined) {
+      const tempRef = resolveTemporaryReference(
+        request.temporaryReferences,
+        value,
+      );
+      if (tempRef !== undefined) {
+        return serializeTemporaryReference(request, tempRef);
+      }
+    }
 
     if (counter.objectCount > 20) {
       // We've reached our max number of objects to serialize across the wire so we serialize this
@@ -2488,12 +2692,12 @@ function renderConsoleValue(
     counter.objectCount++;
 
     const writtenObjects = request.writtenObjects;
-    const existingId = writtenObjects.get(value);
+    const existingReference = writtenObjects.get(value);
     // $FlowFixMe[method-unbinding]
     if (typeof value.then === 'function') {
-      if (existingId !== undefined) {
+      if (existingReference !== undefined) {
         // We've seen this promise before, so we can just refer to the same result.
-        return serializePromiseID(existingId);
+        return existingReference;
       }
 
       const thenable: Thenable<any> = (value: any);
@@ -2529,10 +2733,10 @@ function renderConsoleValue(
       return serializeInfinitePromise();
     }
 
-    if (existingId !== undefined && existingId >= 0) {
+    if (existingReference !== undefined) {
       // We've already emitted this as a real object, so we can
-      // just refer to that by its existing ID.
-      return serializeByValueID(existingId);
+      // just refer to that by its existing reference.
+      return existingReference;
     }
 
     if (isArray(value)) {
@@ -2654,8 +2858,14 @@ function renderConsoleValue(
         (value: any),
       );
     }
-    if (isTemporaryReference(value)) {
-      return serializeTemporaryReference(request, (value: any));
+    if (request.temporaryReferences !== undefined) {
+      const tempRef = resolveTemporaryReference(
+        request.temporaryReferences,
+        value,
+      );
+      if (tempRef !== undefined) {
+        return serializeTemporaryReference(request, tempRef);
+      }
     }
 
     // Serialize the body of the function as an eval so it can be printed.
@@ -2924,6 +3134,10 @@ function retryTask(request: Request, task: Task): void {
     task.implicitSlot = false;
 
     if (typeof resolvedModel === 'object' && resolvedModel !== null) {
+      // We're not in a contextual place here so we can refer to this object by this ID for
+      // any future references.
+      request.writtenObjects.set(resolvedModel, serializeByValueID(task.id));
+
       // Object might contain unresolved values like additional elements.
       // This is simulating what the JSON loop would do if this was part of it.
       emitChunk(request, task, resolvedModel);
